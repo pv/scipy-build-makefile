@@ -15,7 +15,7 @@ test: test-linux
 test-all: test-linux test-wine
 build-all: build-linux build-wine
 
-TEST_STANZA='import sys, os; sys.path.insert(0, os.path.join(os.getcwd(), "site-packages")); import numpy; sys.exit(numpy.test(verbose=2))'
+TEST_STANZA='import sys, os; sys.path.insert(0, os.path.join(os.getcwd(), "site-packages")); import numpy; sys.exit(not numpy.test("full", verbose=2).wasSuccessful())'
 
 build-linux:
 	@echo "version = \"$(REVISION)\"" > numpy/core/__svn_version__.py

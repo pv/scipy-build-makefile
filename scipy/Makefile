@@ -15,7 +15,7 @@ build-all: build-linux build-wine
 
 PYVER=2.5
 
-TEST_STANZA='import sys, os; sys.path.insert(0, os.path.join(os.getcwd(), "site-packages")); import scipy; sys.exit(scipy.test(verbose=2))'
+TEST_STANZA='import sys, os; sys.path.insert(0, os.path.join(os.getcwd(), "site-packages")); import scipy; sys.exit(not scipy.test("full", verbose=2).wasSuccessful())'
 
 build-linux:
 	@echo "version = \"$(REVISION)\"" > scipy/__svn_version__.py
