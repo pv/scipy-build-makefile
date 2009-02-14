@@ -3,7 +3,9 @@ REVISION="$(shell git svn log|head -n2|tail -n1|perl -n -e 'print $$1 if /^r(\d+
 
 all: build test
 
-all-2.6: build-linux-2.6 test-linux-2.6 egg-install-2.6
+all-wine: build-wine test-wine
+
+all-2.6: build-linux-2.6 test-linux-2.6
 
 build: build-linux
 test: test-linux

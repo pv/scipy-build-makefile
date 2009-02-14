@@ -5,6 +5,8 @@ PYVER=2.5
 
 all: build test egg-install
 
+all-wine: build-wine test-wine
+
 all-2.6: build-linux-2.6 test-linux-2.6 egg-install-2.6
 
 build: build-linux
