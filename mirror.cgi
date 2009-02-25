@@ -2,15 +2,16 @@
 """
 %prog [OPTIONS] MODE ARGUMENTS...
 
-CGI script for updating remote Git-SVN mirrors that require SSH keys to push.
+Update remote Git-SVN mirrors that can require SSH keys to push.
 
 Modes:
 
   cgi CONFFILE
-      Function as a CGI script. Accessing URL '%prog/REPO' triggers
-      an background upgrade of a given repository.
+      Function as a CGI script. URL '%prog/REPO/SECRETKEY'
+      triggers a background upgrade of a given repository, provided
+      the secret key matches that given in the config file.
 
-      Consider limiting access to the URL, to prevent denial of service
+      Consider also limiting access to the URL, to prevent denial of service
       attacks.
 
   update CONFFILE REPO
@@ -18,11 +19,21 @@ Modes:
 
 Configuration file:
 
-  [REPO]
+  [global]
+  secret_key = A secret key for the CGI mode.
+  log_file = Path to the log file (used for CGI). Optional.
+  pid_file = Path to the pid file (user for daemon mode). Optional.
+
+  [REPO1]
+  vcs = git
   local = Local path.
   remote = Remote URL where to upload.
-  git-svn-init = Arguments to 'git-svn init' for initial clone.
-  ssh-key = The SSH private key needed for uploading. Optional.
+  git_svn_init = Arguments to 'git-svn init' for initial clone.
+  git_svn_fetch = Arguments to 'git-svn fetch' for initial clone.
+  ssh_key = The SSH private key needed for uploading. Optional.
+
+  [REPO2]
+  ...
 
 """
 #------------------------------------------------------------------------------
@@ -31,6 +42,8 @@ import os
 import re
 import sys
 import struct
+import shutil
+import time
 from optparse import OptionParser
 from subprocess import Popen, PIPE
 
@@ -47,7 +60,7 @@ def main():
     if mode == 'cgi':
         if args:
             p.error("extraneous arguments given")
-        run_cgi(options, validate_config(Config.load(config_file)))
+        run_cgi(validate_config(Config.load(config_file)))
     elif mode == 'update':
         if not args:
             p.error("no repository to update given")
@@ -64,32 +77,84 @@ def run_update(repos, config):
         c = config[name]
         VCSS[c.vcs][0](c)
 
+#------------------------------------------------------------------------------
+# CGI mode
+#------------------------------------------------------------------------------
+
 def run_cgi(config):
     env = os.environ
 
-    path = env.get('PATH_INFO', '')
-    repo_name = path.strip('/').strip()
+    path = env.get('PATH_INFO', '').strip().strip('/').strip()
+
+    if '/' in path:
+        repo_name, secret_key = path.split('/', 1)
+    else:
+        repo_name = None
+
     if repo_name not in config:
         print "Content-type: text/plain\n\nNOP"
         return
 
-    spawn_repo_update(repo_name)
+    if secret_key != config['global'].secret_key:
+        print "Content-type: text/plain\n\nNOP"
+        return
+
+    spawn_repo_update(config, repo_name)
+
     print "Content-type: text/plain\n\nOK"
+
+
+#------------------------------------------------------------------------------
+# General
+#------------------------------------------------------------------------------
 
 def validate_config(config):
     for name in config.keys():
         try:
             section = config[name]
-            if 'vcs' not in section:
-                raise ConfigError("Key 'vcs' not given")
-            if section.vcs == 'git':
-                config[name] = git_validate_config(section)
-                config[name].vcs = 'git'
+            new_section = Config()
+
+            if name == 'global':
+                # Global section
+                new_section.secret_key = section.secret_key
+                new_section.log_file = section.get('log_file', None)
+                new_section.pid_file = section.get('pid_file', None)
             else:
-                raise ConfigError("Vcs '%s' is unknown" % section.vcs)
+                # Repository sections
+                if 'vcs' not in section:
+                    raise ConfigError("Key 'vcs' not given")
+                if section.vcs == 'git':
+                    new_section = git_validate_config(section)
+                    new_section.vcs = 'git'
+                else:
+                    raise ConfigError("Vcs '%s' is unknown" % section.vcs)
+
+            # Check that the config file contains only known keys
+            for key in section.keys():
+                if key not in new_section:
+                    raise ConfigError("Spurious key '%s'" % key)
+
+            # Done.
+            config[name] = new_section
         except ConfigError, err:
             raise ConfigError(err.args[0] + " in section '%s'" % name)
     return config
+
+def spawn_repo_update(config, repo_name):
+    """
+    Run a repository update, spawning ssh-agent as necessary.
+    """
+    if daemonize(config['global'].log_file) == 'child':
+        print "!! Spawning (pid %d)" % os.getpid()
+        try:
+            os.environ.pop('DISPLAY', None)
+            cmd = ['ssh-agent', sys.argv[0], 'update', config._filename,
+                   repo_name]
+            exec_command(cmd, quiet=False)
+        finally:
+            print "!! Done (pid %d)" % os.getpid()
+        sys.exit(0)
+
 
 #------------------------------------------------------------------------------
 # Updating a Git mirror
@@ -103,8 +168,8 @@ def git_validate_config(config):
     except KeyError, err:
         raise ConfigError("No value for key '%s'" % (err.args[0],))
     new.ssh_key = config.get('ssh_key', None)
-    new.init_options = config.get('git_svn_init', '').split()
-    new.fetch_options = config.get('git_svn_fetch', '').split()
+    new.git_svn_init = config.get('git_svn_init', '').split()
+    new.git_svn_fetch = config.get('git_svn_fetch', '').split()
     return new
 
 def git_update_mirror(repo):
@@ -112,24 +177,40 @@ def git_update_mirror(repo):
     Update given Git-SVN mirror
 
     """
+    # Lock
+    if not os.path.isdir(repo.local):
+        os.makedirs(repo.local)
+    lock = LockFile(os.path.join(repo.local, '.update-lock'))
+    lock.acquire()
+    try:
+        _git_update_mirror(repo)
+    finally:
+        lock.release()
 
+def _git_update_mirror(repo):
     local = repo.local
     remote = repo.remote
 
+    # Inject ssh key
+    if repo.ssh_key:
+        exec_command(['ssh-add', repo.ssh_key])
+
     print "++ Updating repository %s ..." % local
 
-    if not os.path.isdir(local):
+    if not os.path.isdir(os.path.join(local, '.git')):
         # Local repository missing
-        basedir = os.path.dirname(local)
-        if not os.path.isdir(basedir):
-            os.makedirs(basedir)
+        if not os.path.isdir(local):
+            os.makedirs(local)
 
         try:
             print "-- Repository missing; trying to clone from remote..."
-            exec_command(['git', 'clone', remote, local])
-            exec_command(['git', 'svn', 'init'] + repo.init_options)
+            os.chdir(local)
+            exec_command(['git', 'init'])
             exec_command(['git', 'fetch', remote,
                           '+refs/remotes/*:refs/remotes/*'])
+            exec_command(['git', 'svn', 'init'] + repo.git_svn_init)
+            exec_command(['git', 'co', '-b', 'master', 'trunk'])
+            exec_command(['git', 'svn', 'rebase', '-l'])
         except ExecError:
             print "-- Remote clone failed; going to get everything via SVN..."
             if os.path.isdir(local):
@@ -137,37 +218,23 @@ def git_update_mirror(repo):
             os.makedirs(local)
             os.chdir(local)
             exec_command(['git', 'init'])
-            exec_command(['git', 'svn', 'init'] + repo.init_options)
-            exec_command(['git', 'svn', 'fetch'] + repo.fetch_options)
+            exec_command(['git', 'svn', 'init'] + repo.git_svn_init)
+            exec_command(['git', 'svn', 'fetch'] + repo.git_svn_fetch)
 
     print "-- Rebasing..."
     os.chdir(local)
 
     output = exec_command(['git', 'svn', 'rebase'])
-    if 'is up to date' in output:
+    if 'is up to date' in output or 'up-to-date' in output:
         # nothing to do
-        print "-- Already up-to-date."
+        print "-- Done, already up-to-date"
         return
 
     print "-- Pushing..."
-    if ssh_key:
-        exec_command(['ssh-add', SSH_KEY])
     exec_command(['git', 'push', remote, '--all'])
     exec_command(['git', 'push', remote, '+refs/remotes/*:refs/remotes/*'])
 
-    print "-- Done..."
-
-def spawn_repo_update(repo_name):
-    """
-    Run a repository update, spawning ssh-agent as necessary.
-    """
-    if daemonize() == 'child':
-        os.environ.pop('DISPLAY', None)
-        if 'SSH_AUTH_SOCK' in os.environ:
-            exec_command([sys.argv[0], '--process', repo_name], quiet=True)
-        else:
-            exec_command(['ssh-agent', sys.argv[0], '--process', repo_name],
-                         quiet=True)
+    print "-- Done"
 
 
 #------------------------------------------------------------------------------
@@ -190,6 +257,7 @@ class Config(dict):
     @classmethod
     def load(cls, filename):
         self = cls()
+        self._filename = filename
         self._parse(filename)
         return self
 
@@ -200,7 +268,10 @@ class Config(dict):
             raise AttributeError(name)
 
     def __setattr__(self, name, value):
-        self[name] = value
+        if name.startswith('_'):
+            self.__dict__[name] = value
+        else:
+            self[name] = value
 
     def copy(self):
         new = Config(dict(self))
@@ -237,12 +308,17 @@ class Config(dict):
 # Utility functions
 #------------------------------------------------------------------------------
 
-def daemonize():
+def daemonize(log_file=None):
     """
     Fork and daemonize a child process in the background.
     Returns 'child' and 'parent', for the child and the parent processes.
 
     """
+    # Try to open log file; just to check if it works
+    if log_file:
+        f = open(log_file, 'a')
+        f.close()
+
     # 1st fork
     if os.fork() > 0:
         # leave parent
@@ -257,8 +333,13 @@ def daemonize():
 
     # IO streams
     si = open('/dev/null', 'r')
-    so = open('/dev/null', 'r')
-    se = open('/dev/null', 'r')
+    if log_file is None:
+        so = open('/dev/null', 'r')
+        se = open('/dev/null', 'r')
+    else:
+        so = open(log_file, 'a', 0) # unbuffered
+        se = so
+
     os.dup2(si.fileno(), sys.stdin.fileno())
     os.dup2(so.fileno(), sys.stdout.fileno())
     os.dup2(se.fileno(), sys.stderr.fileno())
@@ -327,6 +408,59 @@ def exec_command(cmd, ok_return_value=0, quiet=False):
         raise ExecError("Command %s failed (code %d): %s"
                         % (' '.join(cmd), p.returncode, out + err))
     return out + err
+
+class LockFile(object):
+    # XXX: posix-only
+
+    def __init__(self, filename):
+        self.filename = filename
+        self.pid = os.getpid()
+        self.count = 0
+
+    def __enter__(self):
+        self.acquire()
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        self.release()
+
+    def acquire(self, block=True):
+        if self.count > 0:
+            self.count += 1
+            return True
+        
+        while True:
+            try:
+                lock_pid = os.readlink(self.filename)
+                if not os.path.isdir('/proc/%s' % lock_pid):
+                    # dead lock; delete under lock to avoid races
+                    sublock = LockFile(self.filename + '.lock')
+                    sublock.acquire()
+                    try:
+                        os.unlink(self.filename)
+                    finally:
+                        sublock.release()
+            except OSError, exc:
+                pass
+
+            try:
+                os.symlink(repr(self.pid), self.filename)
+                break
+            except OSError, exc:
+                if exc.errno != 17: raise
+
+            if not block:
+                return False
+            time.sleep(1)
+
+        self.count += 1
+        return True
+
+    def release(self):
+        if self.count == 1:
+            os.unlink(self.filename)
+        elif self.count < 1:
+            raise RuntimeError('Invalid lock nesting')
+        self.count -= 1
 
 
 #------------------------------------------------------------------------------
