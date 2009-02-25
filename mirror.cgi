@@ -14,15 +14,21 @@ Modes:
       Consider also limiting access to the URL, to prevent denial of service
       attacks.
 
+  daemon CONFFILE
+      Function as a daemon that listens on a TCP port.
+      Writing 'REPO SECRETKEY' (eg. with the 'telnet' command)
+      to the port causes it to trigger an update.
+
   update CONFFILE REPO
       Update the given repository.
 
 Configuration file:
 
   [global]
-  secret_key = A secret key for the CGI mode.
-  log_file = Path to the log file (used for CGI). Optional.
+  secret_key = A secret key for the CGI/daemon modes.
+  log_file = Path to the log file (used for CGI/daemon mode). Optional.
   pid_file = Path to the pid file (user for daemon mode). Optional.
+  port = TCP port to listen on (used for daemon mode). Default: 3898
 
   [REPO1]
   vcs = git
@@ -44,6 +50,7 @@ import sys
 import struct
 import shutil
 import time
+import socket
 from optparse import OptionParser
 from subprocess import Popen, PIPE
 
@@ -61,12 +68,16 @@ def main():
         if args:
             p.error("extraneous arguments given")
         run_cgi(validate_config(Config.load(config_file)))
+    elif mode == 'daemon':
+        if args:
+            p.error("extraneous arguments given")
+        run_daemon(validate_config(Config.load(config_file)))
     elif mode == 'update':
         if not args:
             p.error("no repository to update given")
         config = validate_config(Config.load(config_file))
         for name in args:
-            if name not in config:
+            if not config.is_repo(name):
                 p.error("unknown repository '%s'" % name)
         run_update(args, config)
     else:
@@ -91,7 +102,7 @@ def run_cgi(config):
     else:
         repo_name = None
 
-    if repo_name not in config:
+    if not config.is_repo(repo_name):
         print "Content-type: text/plain\n\nNOP"
         return
 
@@ -102,6 +113,51 @@ def run_cgi(config):
     spawn_repo_update(config, repo_name)
 
     print "Content-type: text/plain\n\nOK"
+
+#------------------------------------------------------------------------------
+# Daemon mode
+#------------------------------------------------------------------------------
+
+def run_daemon(config):
+    cfg = config['global']
+
+    listen_addr = ('', cfg.port)
+    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    s.bind(listen_addr)
+    s.listen(1)
+
+    if daemonize(cfg.log_file) == 'parent':
+        print "Daemon spawned"
+        return
+
+    if cfg.pid_file:
+        f = open(cfg.pid_file, 'w')
+        f.write("%d" % os.getpid)
+        f.close()
+
+    print "!! Pid %d listening on %s:%s" % (os.getpid(), listen_addr[0],
+                                            listen_addr[1])
+
+    while True:
+        conn, addr = s.accept()
+        print "!! Connect from ", addr
+        data = conn.recv(1024)
+        conn.close()
+
+        r = data.strip().split()
+        if len(r) != 2:
+            print "!! Bad input from", addr
+            continue
+        
+        repo_name, secret = r
+        if secret != cfg.secret_key:
+            print "!! Bad secret from", addr
+            continue
+        if not config.is_repo(repo_name):
+            print "!! Bad repo from", addr
+            continue
+
+        spawn_repo_update(config, repo_name)
 
 
 #------------------------------------------------------------------------------
@@ -119,6 +175,7 @@ def validate_config(config):
                 new_section.secret_key = section.secret_key
                 new_section.log_file = section.get('log_file', None)
                 new_section.pid_file = section.get('pid_file', None)
+                new_section.port = int(section.get('port', 3898))
             else:
                 # Repository sections
                 if 'vcs' not in section:
@@ -136,6 +193,8 @@ def validate_config(config):
 
             # Done.
             config[name] = new_section
+        except ValueError, err:
+            raise ConfigError(err.args[0] + " in section '%s'" % name)
         except ConfigError, err:
             raise ConfigError(err.args[0] + " in section '%s'" % name)
     return config
@@ -258,8 +317,12 @@ class Config(dict):
     def load(cls, filename):
         self = cls()
         self._filename = filename
+        self._global = Config()
         self._parse(filename)
         return self
+
+    def is_repo(self, name):
+        return (name != 'global' and name in self)
 
     def __getattr__(self, name):
         try:
