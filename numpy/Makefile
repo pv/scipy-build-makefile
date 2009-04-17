@@ -28,6 +28,7 @@ egg-install:
 	PYTHONPATH=$(CURDIR)/dist/linux/lib/python$(PYVER)/site-packages \
 		python$(PYVER) setupegg.py install --prefix=$(CURDIR)/dist/linux \
 		> install.log 2>&1 || { cat build.log; exit 1; }
+	find $(CURDIR)/dist -name 'test_*.py' -print0|xargs -0r chmod a-x
 
 test-linux:
 	@echo "--- Testing in Linux"
@@ -52,5 +53,8 @@ build-linux-2.6:
 
 egg-install-2.6:
 	make PYVER=2.6 egg-install
+
+clean:
+	rm -rf build dist
 
 .PHONY: test build test-linux build-linux test-wine build-wine

@@ -20,7 +20,7 @@ TEST_STANZA='import sys, os; sys.path.insert(0, os.path.join(os.getcwd(), "site-
 build-linux:
 	@echo "version = \"$(REVISION)\"" > scipy/__svn_version__.py
 	@echo "--- Building..."
-	python$(PYVER) setup.py build --debug install --prefix=dist/linux \
+	python$(PYVER) setup.py build --debug install --prefix=$(CURDIR)/dist/linux \
 		> build.log 2>&1 || { cat build.log; exit 1; }
 
 test-linux:
@@ -44,4 +44,10 @@ test-linux-2.6:
 build-linux-2.6:
 	make PYVER=2.6 PYTHONPATH=$(PWD)/../numpy.git/dist/linux/lib/python2.6/site-packages build-linux
 
-.PHONY: test build test-linux build-linux test-wine build-wine
+egg-install-2.6:
+	make PYVER=2.6 PYTHONPATH=$(PWD)/../numpy.git/dist/linux/lib/python2.6/site-packages egg-install
+
+clean:
+	rm -rf build dist
+
+.PHONY: test build test-linux build-linux test-wine build-wine clean
