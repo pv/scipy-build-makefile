@@ -1,0 +1,8 @@
+/Makefile
+/setupwin.py
+/build
+/doc/build
+*~
+\#*
+*.pyc
+*.pyo

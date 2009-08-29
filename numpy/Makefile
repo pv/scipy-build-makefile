@@ -1,13 +1,11 @@
 
 REVISION="$(shell git svn log|head -n2|tail -n1|perl -n -e 'print $$1 if /^r(\d+)/;').$(shell git log|head -n1|awk '{print $$2}')"
 
-PYVER=2.5
+PYVER=2.6
 
 all: build test egg-install
 
 all-wine: build-wine test-wine
-
-all-2.6: build-linux-2.6 test-linux-2.6 egg-install-2.6
 
 build: build-linux
 test: test-linux
@@ -44,15 +42,6 @@ test-wine:
 	@echo "--- Testing in WINE"
 	(cd dist/win32/Lib && wine c:\\Python25\\python.exe -c $(TEST_STANZA)) \
 		> test.log 2>&1 || { cat test.log; exit 1; }
-
-test-linux-2.6:
-	make PYVER=2.6 test-linux
-
-build-linux-2.6:
-	make PYVER=2.6 build-linux
-
-egg-install-2.6:
-	make PYVER=2.6 egg-install
 
 clean:
 	rm -rf build dist
