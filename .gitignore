@@ -2,6 +2,7 @@
 /setupwin.py
 /build
 /doc/build
+/.gitignore
 *~
 \#*
 *.pyc
