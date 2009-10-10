@@ -14,6 +14,8 @@ build-all: build-linux build-wine
 
 PYVER=2.6
 
+export PYTHONPATH=$(CURDIR)/../numpy/dist/linux/lib/python$(PYVER)/site-packages/
+
 TEST_STANZA='import sys, os; sys.path.insert(0, os.path.join(os.getcwd(), "site-packages")); import scipy; sys.exit(not scipy.test("full", verbose=2).wasSuccessful())'
 
 build-linux:
