@@ -1,5 +1,6 @@
-
-REVISION="$(shell git svn log|head -n2|tail -n1|perl -n -e 'print $$1 if /^r(\d+)/;').$(shell git log|head -n1|awk '{print $$2}')"
+SVN_BASE_REVISION=$(shell git log|sed -n -e '/git-svn-id:.*@\([0-9]\+\)/{s/.*@//;s/ .*//;p;q}')
+GIT_REVISION=$(shell git log|sed -e '1{s/commit \(......\).*/\1/;q;}')
+REVISION=$(SVN_BASE_REVISION)+$(GIT_REVISION)
 
 PYVER=2.6
 
