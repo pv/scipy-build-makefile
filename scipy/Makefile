@@ -29,6 +29,13 @@ test-linux:
 	(cd dist/linux/lib/python$(PYVER) && python$(PYVER) -c $(TEST_STANZA)) \
 		> test.log 2>&1 || { cat test.log; exit 1; }
 
+egg-install:
+	install -d $(CURDIR)/dist/linux/lib/python$(PYVER)/site-packages
+	PYTHONPATH=$$PYTHONPATH:$(CURDIR)/dist/linux/lib/python$(PYVER)/site-packages \
+	    python$(PYVER) setupegg.py install --prefix=$(CURDIR)/dist/linux \
+	    > install.log 2>&1 || { cat install.log; exit 1; }
+	find $(CURDIR)/dist -name 'test_*.py' -print0|xargs -0r chmod a-x
+
 build-wine:
 	@echo "--- Building..."
 	wine c:\\Python25\\python.exe setup.py build --compiler=mingw32 install --prefix="dist\\win32" \
