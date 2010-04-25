@@ -16,6 +16,9 @@ PYVER=2.6
 
 export PYTHONPATH=$(CURDIR)/../numpy/dist/linux/lib/python$(PYVER)/site-packages/
 
+PATH := /usr/lib/ccache:$(PATH)
+export PATH
+
 TEST_MODULE=scipy
 TEST_STANZA='import sys, os; sys.path.insert(0, os.path.join(os.getcwd(), "site-packages")); import $(TEST_MODULE) as tst; sys.exit(not tst.test("full", verbose=2).wasSuccessful())'
 

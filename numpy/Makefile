@@ -19,6 +19,9 @@ TEST_STANZA='import sys, os; sys.path.insert(0, os.path.join(os.getcwd(), "site-
 
 export OPT="-ggdb"
 
+PATH := /usr/lib/ccache:$(PATH)
+export PATH
+
 SEPARATE_COMPILATION=1
 ifeq ($(SEPARATE_COMPILATION),1)
     export NPY_SEPARATE_COMPILATION=1
