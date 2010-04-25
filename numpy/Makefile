@@ -17,23 +17,39 @@ build-all: build-linux build-wine
 TEST_MODULE=numpy
 TEST_STANZA='import sys, os; sys.path.insert(0, os.path.join(os.getcwd(), "site-packages")); import $(TEST_MODULE) as tst; sys.exit(not tst.test("full", verbose=2).wasSuccessful())'
 
+export OPT="-ggdb"
+
+SEPARATE_COMPILATION=1
+ifeq ($(SEPARATE_COMPILATION),1)
+    export NPY_SEPARATE_COMPILATION=1
+endif
+
 build-linux:
 	@echo "version = \"$(REVISION)\"" > numpy/core/__svn_version__.py
 	@echo "--- Building..."
 	python$(PYVER) setup.py build --debug install --prefix=$(CURDIR)/dist/linux \
 		> build.log 2>&1 || { cat build.log; exit 1; }
 
+EGGDIR=$(CURDIR)/dist/linux/lib/python$(PYVER)/site-packages
+
 egg-install:
-	install -d $(CURDIR)/dist/linux/lib/python$(PYVER)/site-packages
-	PYTHONPATH=$(CURDIR)/dist/linux/lib/python$(PYVER)/site-packages \
-		python$(PYVER) setupegg.py install --prefix=$(CURDIR)/dist/linux \
-		> install.log 2>&1 || { cat build.log; exit 1; }
+	install -d $(EGGDIR)
+	PYTHONPATH=$(EGGDIR) \
+	        python$(PYVER) setupegg.py install --prefix=$(CURDIR)/dist/linux \
+	        > install.log 2>&1 || { cat build.log; exit 1; }
+	rm -rf $(EGGDIR)/numpy
+	ln -s `ls -FAd --sort=time $(EGGDIR)/*.egg|head -n1`/numpy $(EGGDIR)/numpy
 	find $(CURDIR)/dist -name 'test_*.py' -print0|xargs -0r chmod a-x
 
 test-linux:
 	@echo "--- Testing in Linux"
 	(cd dist/linux/lib/python$(PYVER) && python$(PYVER) -c $(TEST_STANZA)) \
 		> test.log 2>&1 || { cat test.log; exit 1; }
+
+cgdb-linux:
+	@echo "--- Testing in Linux"
+	cd dist/linux/lib/python$(PYVER) && cgdb --args python$(PYVER) -c $(TEST_STANZA)
+
 
 build-wine:
 	@echo "--- Building..."
@@ -46,6 +62,7 @@ test-wine:
 		> test.log 2>&1 || { cat test.log; exit 1; }
 
 clean:
-	rm -rf build dist
+	rm -rf build/lib.* build/src.* build/temp.* build/scripts.* dist
+	rm -rf build/py3k/build/lib.* build/py3k/build/src.* build/py3k/build/temp.* build/py3k/build/scripts.*
 
-.PHONY: test build test-linux build-linux test-wine build-wine
+.PHONY: test build test-linux build-linux test-wine build-wine cgdb-linux

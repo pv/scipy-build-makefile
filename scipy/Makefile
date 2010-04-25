@@ -47,6 +47,9 @@ test-wine:
 	(cd dist/win32/Lib && wine c:\\Python25\\python.exe -c $(TEST_STANZA)) \
 		> test.log 2>&1 || { cat test.log; exit 1; }
 
+ipython:
+	cd $(CURDIR)/dist && PYTHONPATH=$$PYTHONPATH:$(CURDIR)/dist/linux/lib/python$(PYVER)/site-packages python$(PYVER) `which ipython`
+
 clean:
 	rm -rf build dist
 
