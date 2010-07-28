@@ -14,13 +14,16 @@ build-all: build-linux build-wine
 
 PYVER=2.6
 
+export OPT=-ggdb
+
 export PYTHONPATH=$(CURDIR)/../numpy/dist/linux/lib/python$(PYVER)/site-packages/
 
-PATH := /usr/lib/ccache:$(PATH)
+PATH := /usr/lib/ccache:/usr/local/lib/f90cache:$(PATH)
 export PATH
 
 TEST_MODULE=scipy
-TEST_STANZA='import sys, os; sys.path.insert(0, os.path.join(os.getcwd(), "site-packages")); import $(TEST_MODULE) as tst; sys.exit(not tst.test("full", verbose=2).wasSuccessful())'
+TEST_TYPE=full
+TEST_STANZA='import sys, os; sys.path.insert(0, os.path.join(os.getcwd(), "site-packages")); import $(TEST_MODULE) as tst; sys.exit(not tst.test("$(TEST_TYPE)", verbose=2).wasSuccessful())'
 
 build-linux:
 	@echo "version = \"$(REVISION)\"" > scipy/__svn_version__.py
@@ -32,6 +35,14 @@ test-linux:
 	@echo "--- Testing in Linux"
 	(cd dist/linux/lib/python$(PYVER) && python$(PYVER) -c $(TEST_STANZA)) \
 		> test.log 2>&1 || { cat test.log; exit 1; }
+
+test-cgdb:
+	@echo "--- Testing in Linux"
+	cd dist/linux/lib/python$(PYVER) && cgdb --args python$(PYVER) -c $(TEST_STANZA)
+
+test-valgrind:
+	@echo "--- Testing in Linux"
+	cd dist/linux/lib/python$(PYVER) && valgrind --suppressions=$(HOME)/.valgrind/valgrind-python.supp -- python$(PYVER) -c $(TEST_STANZA)
 
 egg-install:
 	install -d $(CURDIR)/dist/linux/lib/python$(PYVER)/site-packages
@@ -52,6 +63,18 @@ test-wine:
 
 ipython:
 	cd $(CURDIR)/dist && PYTHONPATH=$$PYTHONPATH:$(CURDIR)/dist/linux/lib/python$(PYVER)/site-packages python$(PYVER) `which ipython`
+
+cgdb:
+	cd $(CURDIR)/dist && PYTHONPATH=$$PYTHONPATH:$(CURDIR)/dist/linux/lib/python$(PYVER)/site-packages cgdb --args python$(PYVER)
+
+python:
+	cd $(CURDIR)/dist && PYTHONPATH=$$PYTHONPATH:$(CURDIR)/dist/linux/lib/python$(PYVER)/site-packages python$(PYVER)
+
+sh:
+	cd $(CURDIR)/dist && PYTHONPATH=$$PYTHONPATH:$(CURDIR)/dist/linux/lib/python$(PYVER)/site-packages bash
+
+etags:
+	find . -name '*.[ch]' | xargs etags
 
 clean:
 	rm -rf build dist

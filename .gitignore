@@ -1,10 +1,16 @@
 /Makefile
 /setupwin.py
 /build
+/dist
 /doc/build
+/doc/cdoc/build
 /.gitignore
 *~
 \#*
 *.pyc
 *.pyo
 *.log
+*.egg-info
+/numpy/core/__svn_version__.py
+/doc/numpy.scipy.org/_build
+/TAGS

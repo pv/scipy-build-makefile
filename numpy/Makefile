@@ -4,7 +4,7 @@ REVISION=$(SVN_BASE_REVISION)+$(GIT_REVISION)
 
 PYVER=2.6
 
-all: build test egg-install
+all: build test
 
 all-wine: build-wine test-wine
 
@@ -15,12 +15,19 @@ test-all: test-linux test-wine
 build-all: build-linux build-wine
 
 TEST_MODULE=numpy
-TEST_STANZA='import sys, os; sys.path.insert(0, os.path.join(os.getcwd(), "site-packages")); import $(TEST_MODULE) as tst; sys.exit(not tst.test("full", verbose=2).wasSuccessful())'
+TEST_TYPE=full
+TEST_STANZA='import sys, os; sys.path.insert(0, os.path.join(os.getcwd(), "site-packages")); import $(TEST_MODULE) as tst; sys.exit(not tst.test("$(TEST_TYPE)", verbose=2).wasSuccessful())'
 
-export OPT="-ggdb"
+DEBUG=1
+ifeq ($(DEBUG),1)
+    export OPT="-ggdb"
+endif
 
-PATH := /usr/lib/ccache:$(PATH)
+PATH := /usr/lib/ccache:/usr/local/lib/f90cache:$(PATH)
 export PATH
+
+USE_2TO3CACHE=1
+export USE_2TO3CACHE
 
 SEPARATE_COMPILATION=1
 ifeq ($(SEPARATE_COMPILATION),1)
@@ -49,7 +56,7 @@ test-linux:
 	(cd dist/linux/lib/python$(PYVER) && python$(PYVER) -c $(TEST_STANZA)) \
 		> test.log 2>&1 || { cat test.log; exit 1; }
 
-cgdb-linux:
+cgdb:
 	@echo "--- Testing in Linux"
 	cd dist/linux/lib/python$(PYVER) && cgdb --args python$(PYVER) -c $(TEST_STANZA)
 
@@ -66,6 +73,18 @@ test-wine:
 
 ipython:
 	cd $(CURDIR)/dist && PYTHONPATH=$$PYTHONPATH:$(CURDIR)/dist/linux/lib/python$(PYVER)/site-packages python$(PYVER) `which ipython`
+
+cgdb-python:
+	cd $(CURDIR)/dist && PYTHONPATH=$$PYTHONPATH:$(CURDIR)/dist/linux/lib/python$(PYVER)/site-packages cgdb --args python$(PYVER)
+
+python:
+	cd $(CURDIR)/dist && PYTHONPATH=$$PYTHONPATH:$(CURDIR)/dist/linux/lib/python$(PYVER)/site-packages python$(PYVER)
+
+sh:
+	cd $(CURDIR)/dist && PYTHONPATH=$$PYTHONPATH:$(CURDIR)/dist/linux/lib/python$(PYVER)/site-packages bash
+
+etags:
+	find numpy -name '*.[ch]' | xargs etags
 
 clean:
 	rm -rf build/lib.* build/src.* build/temp.* build/scripts.* dist
