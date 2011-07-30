@@ -2,7 +2,7 @@ SVN_BASE_REVISION=$(shell git log|sed -n -e '/git-svn-id:.*@\([0-9]\+\)/{s/.*@//
 GIT_REVISION=$(shell git log|sed -e '1{s/commit \(......\).*/\1/;q;}')
 REVISION=$(SVN_BASE_REVISION)+$(GIT_REVISION)
 
-PYVER=2.6
+PYVER=2.7
 
 all: build test
 
@@ -34,9 +34,21 @@ ifeq ($(SEPARATE_COMPILATION),1)
     export NPY_SEPARATE_COMPILATION=1
 endif
 
+WINEPREFIX=/home/pauli/.wine/sub/python
+export WINEPREFIX
+
+LANG=C
+export LANG
+
+LD_LIBRARY_PATH=$(CURDIR)/libndarray/.libs
+export LD_LIBRARY_PATH
+
+PYWINVER=$(subst .,,$(PYVER))
+
 build-linux:
 	@echo "version = \"$(REVISION)\"" > numpy/core/__svn_version__.py
 	@echo "--- Building..."
+	test ! -d libndarray || ((if test ! -f libndarray/Makefile; then cd libndarray && ./autogen.sh && CFLAGS="-ggdb" ./configure; fi) && make -C libndarray)
 	python$(PYVER) setup.py build --debug install --prefix=$(CURDIR)/dist/linux \
 		> build.log 2>&1 || { cat build.log; exit 1; }
 
@@ -63,31 +75,47 @@ cgdb:
 
 build-wine:
 	@echo "--- Building..."
-	wine c:\\Python25\\python.exe setupwin.py build --compiler=mingw32 install --prefix="dist\\win32" \
+	rm -rf dist/win32
+	wine c:\\Python$(PYWINVER)\\python.exe setupwin.py build --compiler=mingw32 install --prefix="dist\\win32" \
 		> build.log 2>&1 || { cat build.log; exit 1; }
 
 test-wine:
 	@echo "--- Testing in WINE"
-	(cd dist/win32/Lib && wine c:\\Python25\\python.exe -c $(TEST_STANZA)) \
+	(cd dist/win32/Lib && wine c:\\Python$(PYWINVER)\\python.exe -c $(TEST_STANZA)) \
 		> test.log 2>&1 || { cat test.log; exit 1; }
+
+python-wine:
+	cd dist/win32/Lib && wine c:\\Python$(PYWINVER)\\python.exe
 
 ipython:
 	cd $(CURDIR)/dist && PYTHONPATH=$$PYTHONPATH:$(CURDIR)/dist/linux/lib/python$(PYVER)/site-packages python$(PYVER) `which ipython`
 
 cgdb-python:
-	cd $(CURDIR)/dist && PYTHONPATH=$$PYTHONPATH:$(CURDIR)/dist/linux/lib/python$(PYVER)/site-packages cgdb --args python$(PYVER)
+	cd $(CURDIR)/dist && PYTHONPATH=$$PYTHONPATH:$(CURDIR)/dist/linux/lib/python$(PYVER)/site-packages cgdb --args python$(PYVER) $(PYARGS)
 
 python:
-	cd $(CURDIR)/dist && PYTHONPATH=$$PYTHONPATH:$(CURDIR)/dist/linux/lib/python$(PYVER)/site-packages python$(PYVER)
+	cd $(CURDIR)/dist && PYTHONPATH=$$PYTHONPATH:$(CURDIR)/dist/linux/lib/python$(PYVER)/site-packages python$(PYVER) $(PYARGS)
 
 sh:
 	cd $(CURDIR)/dist && PYTHONPATH=$$PYTHONPATH:$(CURDIR)/dist/linux/lib/python$(PYVER)/site-packages bash
 
 etags:
-	find numpy -name '*.[ch]' | xargs etags
+	find numpy libndarray -name '*.[ch]' -o -name '*.src' \
+	| ctags-exuberant -L - \
+	-e --extra=+fq --fields=+afiksS --c++-kinds=+px \
+	--langmap=c:+.src,python:+.pyx --if0=yes \
+	--regex-c="/#define ([a-zA-Z0-9@_]*@[a-zA-Z0-9@_]*)/\1/" \
+	--regex-c="/^([a-zA-Z0-9@_]*@[a-zA-Z0-9@_]*)\(/\1/"
+
+tags: etags
+
+watch:
+	while true; do \
+	    inotifywait -e modify --exclude '.*~' -r $(CURDIR)/numpy && \
+		{ make PYVER=$(PYVER) TEST_TYPE="$(TEST_TYPE)" TEST_MODULE="$(TEST_MODULE)" etags build test; }; \
+	done
 
 clean:
-	rm -rf build/lib.* build/src.* build/temp.* build/scripts.* dist
-	rm -rf build/py3k/build/lib.* build/py3k/build/src.* build/py3k/build/temp.* build/py3k/build/scripts.*
+	rm -rf build dist
 
 .PHONY: test build test-linux build-linux test-wine build-wine cgdb-linux

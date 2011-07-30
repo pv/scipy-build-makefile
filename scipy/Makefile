@@ -12,14 +12,30 @@ test: test-linux
 test-all: test-linux test-wine
 build-all: build-linux build-wine
 
-PYVER=2.6
+PYVER=2.7
 
+DEBUG=1
+ifeq ($(DEBUG),1)
 export OPT=-ggdb
+export FOPT=-ggdb -O1
+endif
 
 export PYTHONPATH=$(CURDIR)/../numpy/dist/linux/lib/python$(PYVER)/site-packages/
 
+CCACHE=1
+ifeq ($(CCACHE),1)
 PATH := /usr/lib/ccache:/usr/local/lib/f90cache:$(PATH)
 export PATH
+endif
+
+USE_2TO3CACHE=1
+export USE_2TO3CACHE
+
+WINEPREFIX=/home/pauli/.wine/sub/python
+export WINEPREFIX
+
+LANG=C
+export LANG
 
 TEST_MODULE=scipy
 TEST_TYPE=full
@@ -29,6 +45,12 @@ build-linux:
 	@echo "version = \"$(REVISION)\"" > scipy/__svn_version__.py
 	@echo "--- Building..."
 	python$(PYVER) setup.py build --debug install --prefix=$(CURDIR)/dist/linux \
+		> build.log 2>&1 || { cat build.log; exit 1; }
+
+build-linux-scons:
+	@echo "version = \"$(REVISION)\"" > scipy/__svn_version__.py
+	@echo "--- Building..."
+	python$(PYVER) setupscons.py build --debug install --prefix=$(CURDIR)/dist/linux \
 		> build.log 2>&1 || { cat build.log; exit 1; }
 
 test-linux:
@@ -42,7 +64,7 @@ test-cgdb:
 
 test-valgrind:
 	@echo "--- Testing in Linux"
-	cd dist/linux/lib/python$(PYVER) && valgrind --suppressions=$(HOME)/.valgrind/valgrind-python.supp -- python$(PYVER) -c $(TEST_STANZA)
+	(cd dist/linux/lib/python$(PYVER) && valgrind --suppressions=$(HOME)/.valgrind/valgrind-python.supp -- python$(PYVER) -c $(TEST_STANZA)) > test.log 2>&1 || { cat test.log; exit 1; }
 
 egg-install:
 	install -d $(CURDIR)/dist/linux/lib/python$(PYVER)/site-packages
@@ -62,21 +84,31 @@ test-wine:
 		> test.log 2>&1 || { cat test.log; exit 1; }
 
 ipython:
-	cd $(CURDIR)/dist && PYTHONPATH=$$PYTHONPATH:$(CURDIR)/dist/linux/lib/python$(PYVER)/site-packages python$(PYVER) `which ipython`
+	cd $(CURDIR)/dist && PYTHONPATH=$$PYTHONPATH:$(CURDIR)/dist/linux/lib/python$(PYVER)/site-packages python$(PYVER) `which ipython` -pylab
 
 cgdb:
-	cd $(CURDIR)/dist && PYTHONPATH=$$PYTHONPATH:$(CURDIR)/dist/linux/lib/python$(PYVER)/site-packages cgdb --args python$(PYVER)
+	cd $(CURDIR)/dist && PYTHONPATH=$$PYTHONPATH:$(CURDIR)/dist/linux/lib/python$(PYVER)/site-packages cgdb --args python$(PYVER) $(PYARGS)
 
 python:
-	cd $(CURDIR)/dist && PYTHONPATH=$$PYTHONPATH:$(CURDIR)/dist/linux/lib/python$(PYVER)/site-packages python$(PYVER)
+	cd $(CURDIR)/dist && PYTHONPATH=$$PYTHONPATH:$(CURDIR)/dist/linux/lib/python$(PYVER)/site-packages python$(PYVER) $(PYARGS)
+
+python-valgrind:
+	cd $(CURDIR)/dist && PYTHONPATH=$$PYTHONPATH:$(CURDIR)/dist/linux/lib/python$(PYVER)/site-packages valgrind --suppressions=$(HOME)/.valgrind/valgrind-python.supp -- python$(PYVER) $(PYARGS)
 
 sh:
 	cd $(CURDIR)/dist && PYTHONPATH=$$PYTHONPATH:$(CURDIR)/dist/linux/lib/python$(PYVER)/site-packages bash
 
 etags:
-	find . -name '*.[ch]' | xargs etags
+	find scipy -name '*.[ch]' -o -name '*.src' -o -name '*.py' -o -name '*.pyx' \
+	| ctags-exuberant -L - \
+	-e --extra=+fq --fields=+afiksS --c++-kinds=+px \
+	--langmap=c:+.src,python:+.pyx --if0=yes \
+	--regex-c="/#define ([a-zA-Z0-9@_]*@[a-zA-Z0-9@_]*)/\1/" \
+	--regex-c="/^([a-zA-Z0-9@_]*@[a-zA-Z0-9@_]*)\(/\1/"
+
+tags: etags
 
 clean:
 	rm -rf build dist
 
-.PHONY: test build test-linux build-linux test-wine build-wine clean
+.PHONY: test build test-linux build-linux test-wine build-wine clean etags tags
