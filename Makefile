@@ -22,6 +22,7 @@ TEST_STANZA='import sys, os; sys.path.insert(0, os.path.join(os.getcwd(), "site-
 
 DEBUG=1
 ifeq ($(DEBUG),1)
+    SETUP_PY_BUILDFLAG=--debug
     export OPT="-ggdb"
     export FOPT="-ggdb -O1"
 endif
@@ -39,6 +40,8 @@ SEPARATE_COMPILATION=1
 ifeq ($(SEPARATE_COMPILATION),1)
     export NPY_SEPARATE_COMPILATION=1
 endif
+
+WINE=wine
 
 WINEPREFIX=$(HOME)/.wine/sub/python
 export WINEPREFIX
@@ -64,7 +67,7 @@ build-linux:
 ifeq ($(MODULENAME),numpy)
 	test ! -d libndarray || ((if test ! -f libndarray/Makefile; then cd libndarray && ./autogen.sh && CFLAGS="-ggdb" ./configure; fi) && make -C libndarray)
 endif
-	python$(PYVER) setup.py build --debug install --prefix=$(CURDIR)/dist/linux \
+	python$(PYVER) setup.py build $(SETUP_PY_BUILDFLAG) install --prefix=$(CURDIR)/dist/linux \
 		> build.log 2>&1 || { cat build.log; exit 1; }
 
 egg-install:
@@ -79,7 +82,7 @@ egg-install:
 build-wine:
 	@echo "--- Building..."
 	rm -rf dist/win32
-	wine c:\\Python$(PYWINVER)\\python.exe setupwin.py build --compiler=mingw32 install --prefix="dist\\win32" \
+	$(WINE) c:\\Python$(PYWINVER)\\python.exe setupwin.py build --compiler=mingw32 install --prefix="dist\\win32" \
 		> build.log 2>&1 || { cat build.log; exit 1; }
 
 #
@@ -93,7 +96,7 @@ test-linux:
 
 test-wine:
 	@echo "--- Testing in WINE"
-	(cd dist/win32/Lib && wine c:\\Python$(PYWINVER)\\python.exe -c $(TEST_STANZA)) \
+	(cd dist/win32/Lib && $(WINE) c:\\Python$(PYWINVER)\\python.exe -c $(TEST_STANZA)) \
 		> test.log 2>&1 || { cat test.log; exit 1; }
 
 # -- Launch debugger
@@ -110,7 +113,7 @@ cgdb-python:
 #
 
 python-wine:
-	cd dist/win32/Lib && wine c:\\Python$(PYWINVER)\\python.exe
+	cd dist/win32/Lib && $(WINE) c:\\Python$(PYWINVER)\\python.exe
 
 ipython:
 	cd $(CURDIR)/dist && PYTHONPATH=$$PYTHONPATH:$(CURDIR)/dist/linux/lib/python$(PYVER)/site-packages python$(PYVER) `which ipython`
