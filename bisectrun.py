@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 """
-bisectrun.py SCRIPT
+git bisect run bisectrun.py SCRIPT
 
 Run a Python script under Git bisect, running "make clean build" and arranging
 import paths first. If build fails, it is reported to Git as 'cannot test'.
