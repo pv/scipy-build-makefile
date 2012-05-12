@@ -2,8 +2,8 @@
 """
 bisectrun.py SCRIPT
 
-Run a script under Git bisect, rebuilding Numpy and arranging import paths
-first. If build fails, it is reported to Git as 'cannot test'.
+Run a Python script under Git bisect, running "make clean build" and arranging
+import paths first. If build fails, it is reported to Git as 'cannot test'.
 
 The script should raise an AssertionError if it fails, or run successfully.
 Any other errors raised are reported to Git as 'cannot test'.
