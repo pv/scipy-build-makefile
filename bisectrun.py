@@ -26,6 +26,8 @@ ENV = {
 
 def main():
     p = optparse.OptionParser(usage=__doc__.strip())
+    p.add_option("-n", "--no-clean", dest="no_clean", action="store_true",
+                 default=False, help="do not remove the build directory")
     options, args = p.parse_args()
 
     if len(args) != 1:
@@ -35,7 +37,7 @@ def main():
 
     # -- Build and import
     try:
-        sitedir, dstdir = build_and_install()
+        sitedir, dstdir = build_and_install(no_clean=options.no_clean)
     except RuntimeError:
         # Signal testing failure
         print "TEST: cannot run: build failed"
@@ -60,11 +62,11 @@ def main():
     print "TEST: success"
     sys.exit(0)
 
-def build_and_install():
+def build_and_install(no_clean=False):
     dstdir = os.path.abspath(os.path.join(os.path.dirname(__file__), "testdist"))
     sitedir = get_python_lib(prefix=dstdir)
 
-    if os.path.isdir('build'):
+    if os.path.isdir('build') and not no_clean:
         shutil.rmtree('build')
     if os.path.isdir(sitedir):
         shutil.rmtree(sitedir)
