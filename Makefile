@@ -5,6 +5,7 @@ all: build test
 all-wine: build-wine test-wine
 
 build: build-linux
+build-bento: build-linux-bento
 test: test-linux
 
 test-all: test-linux test-wine
@@ -70,11 +71,13 @@ PYPYPY_FLAGS=\
 	--withmod-select --withmod-signal --withmod-mmap --withmod-cStringIO \
 	--withmod-unicodedata --withmod-thread
 
-#export PYTHONPATH=$(CURDIR)/../numpy/dist/linux/lib/python$(PYVER)/site-packages/
+export PYTHONPATH=$(CURDIR)/../numpy/dist/linux/lib/python$(PYVER)/site-packages/
 
 #
 # -- Build and install
 #
+
+build-linux: build-linux-distutils
 
 build-linux-bento:
 	@echo "--- Building..."
@@ -83,12 +86,12 @@ ifeq ($(MODULENAME),numpy)
 endif
 	bentomaker configure --prefix=$(CURDIR)/dist/linux \
 		> build.log 2>&1 || { cat build.log; exit 1; }
-	bentomaker build -j $(NCPUS) \
+	bentomaker build -j $(NCPUS) -v \
 		>> build.log 2>&1 || { cat build.log; exit 1; }
 	bentomaker install \
 		>> build.log 2>&1 || { cat build.log; exit 1; }
 
-build-linux:
+build-linux-distutils:
 	@echo "--- Building..."
 ifeq ($(MODULENAME),numpy)
 	test ! -d libndarray || ((if test ! -f libndarray/Makefile; then cd libndarray && ./autogen.sh && CFLAGS="-ggdb" ./configure; fi) && make -C libndarray)
@@ -147,11 +150,11 @@ test-wine:
 
 # -- Launch debugger
 
-cgdb-test:
+test-cgdb:
 	@echo "--- Testing in Linux"
 	cd dist/linux/lib/python$(PYVER) && cgdb --args python$(PYVER) -c $(TEST_STANZA)
 
-cgdb-python:
+python-cgdb:
 	cd $(CURDIR)/dist && PYTHONPATH=$$PYTHONPATH:$(CURDIR)/dist/linux/lib/python$(PYVER)/site-packages cgdb --args python$(PYVER) $(PYARGS)
 
 
@@ -160,27 +163,27 @@ PYPYX_STR="import sys; sys.path.insert(0, \"/home/pauli/prj/scipy/numpy/dist/lin
 pypyx:
 	make pypy PYARGS='-c $(PYPYX_STR)'
 
-cgdb-pypyx:
+pypyx-cgdb:
 	make cgdb-pypy PYARGS='-c $(PYPYX_STR)'
 
-cgdb-pypy:
+pypy-cgdb:
 	cd $(CURDIR)/dist && PYTHONPATH=$$PYTHONPATH:$(CURDIR)/dist/linux/site-packages cgdb --args $(PYPY_C) $(PYARGS)
 
-cgdb-pypypy:
+pypypy-cgdb:
 	cd $(CURDIR)/dist && PYTHONPATH=$$PYTHONPATH:$(CURDIR)/dist/linux/site-packages cgdb --args $(PYPYPY) $(PYPYPY_FLAGS) $(PYARGS)
 
-cgdb-pypypy-all:
+pypypy-cgdb-all:
 	cd $(CURDIR)/dist && PYTHONPATH=$$PYTHONPATH:$(CURDIR)/dist/linux/site-packages cgdb --args $(PYPYPY) --allworkingmodules $(PYARGS)
 
 # -- Launch valgrind
 
 VALGRIND=valgrind-py
 
-valgrind-test:
+test-valgrind:
 	@echo "--- Testing in Linux"
 	cd dist/linux/lib/python$(PYVER) && $(VALGRIND) python$(PYVER) -c $(TEST_STANZA)
 
-valgrind-python:
+python-valgrind:
 	cd $(CURDIR)/dist && PYTHONPATH=$$PYTHONPATH:$(CURDIR)/dist/linux/lib/python$(PYVER)/site-packages $(VALGRIND) python$(PYVER) $(PYARGS)
 
 #
@@ -242,6 +245,7 @@ oclean:
 	    -o -name '*.so' -o -name '*.py*' \) -a -type f -print0 \
 	| xargs -0r rm -f
 
-.PHONY: all all-wine build-all build build-linux build-wine cgdb-python \
-	cgdb-test clean egg-install etags ipython python python-wine \
-	sh tags test-all test-linux test test-wine watch oclean
+.PHONY: all all-wine build-all build build-linux build-wine python-cgdb \
+	test-cgdb clean egg-install etags ipython python python-wine \
+	sh tags test-all test-linux test test-wine watch oclean \
+	test-valgrind python-valgrind
