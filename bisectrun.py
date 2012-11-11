@@ -1,8 +1,8 @@
 #!/usr/bin/env python
 """
-git bisect run bisectrun.py SCRIPT
+git bisect run python bisectrun.py SCRIPT
 
-Run a Python script under Git bisect, running "make clean build" and arranging
+Run a Python script under Git bisect, rebuilding the module and arranging
 import paths first. If build fails, it is reported to Git as 'cannot test'.
 
 The script should raise an AssertionError if it fails, or run successfully.
@@ -11,7 +11,18 @@ Any other errors raised are reported to Git as 'cannot test'.
 """
 import sys
 import os
+import subprocess
 import optparse
+import shutil
+from distutils.sysconfig import get_python_lib
+
+ENV = {
+    'OPT': '-ggdb',
+    'FOPT': '-ggdb',
+    'NPY_SEPARATE_BUILD': '1',
+    'USE_2TO3CACHE': '1',
+    'PATH': '/usr/lib/ccache:/usr/local/lib/f90cache' + os.pathsep + os.environ['PATH'],
+}
 
 def main():
     p = optparse.OptionParser(usage=__doc__.strip())
@@ -23,24 +34,22 @@ def main():
     script = os.path.abspath(args[0])
 
     # -- Build and import
-    pyver = "%d.%d" % sys.version_info[:2]
-
-    os.chdir(os.path.abspath(os.path.dirname(__file__)))
-    ret = os.system("make clean build PYVER=%s" % pyver)
-
-    if ret != 0:
+    try:
+        sitedir, dstdir = build_and_install()
+    except RuntimeError:
         # Signal testing failure
         print "TEST: cannot run: build failed"
         sys.exit(125)
 
-    pth = os.path.abspath(os.path.join(os.path.dirname(__file__),
-        "dist", "linux", "lib", "python%s" % pyver, "site-packages"))
-    sys.path.insert(0, pth)
+    sys.path.insert(0, sitedir)
 
     # -- Run test
 
     try:
-        execfile(script)
+        f = open(script, 'rb')
+        code = compile(f.read(), script, 'exec')
+        f.close()
+        exec code in {}
     except AssertionError, e:
         print "TEST: failed:", e
         sys.exit(1)
@@ -50,6 +59,29 @@ def main():
 
     print "TEST: success"
     sys.exit(0)
+
+def build_and_install():
+    dstdir = os.path.abspath(os.path.join(os.path.dirname(__file__), "testdist"))
+    sitedir = get_python_lib(prefix=dstdir)
+
+    if os.path.isdir('build'):
+        shutil.rmtree('build')
+    if os.path.isdir(sitedir):
+        shutil.rmtree(sitedir)
+    os.makedirs(sitedir)
+
+    print "Building..."
+    log = open('build.log', 'wb')
+    p = subprocess.Popen([sys.executable, 'setup.py', 'install',
+                          '--prefix=' + dstdir], env=ENV,
+                          stdout=log, stderr=log)
+    p.communicate()
+    log.close()
+
+    if p.returncode != 0:
+        raise RuntimeError()
+
+    return sitedir, dstdir
 
 if __name__ == "__main__":
     main()
