@@ -1,12 +1,18 @@
 #!/usr/bin/env python
 """
-git bisect run python bisectrun.py SCRIPT
+git bisect run python bisectrun.py SCRIPT [PRE_SCRIPT]
 
-Run a Python script under Git bisect, rebuilding the module and arranging
-import paths first. If build fails, it is reported to Git as 'cannot test'.
+Run a Python script under Git bisect, rebuilding the module and
+arranging import paths first. If build fails, it is reported to Git as
+'cannot test'.
 
-The script should raise an AssertionError if it fails, or run successfully.
-Any other errors raised are reported to Git as 'cannot test'.
+The script should raise an AssertionError if it fails, or run
+successfully.  Any other errors raised are reported to Git as 'cannot
+test'.
+
+The script is run after the build, with import path correctly set up.
+The pre-script is run before the build, without setting the import
+path.
 
 """
 import sys
@@ -30,12 +36,27 @@ def main():
                  default=False, help="do not remove the build directory")
     options, args = p.parse_args()
 
-    if len(args) != 1:
-        p.error('no script file given')
+    if len(args) == 1:
+        script = os.path.abspath(args[0])
+        pre_script = None
+    elif len(args) == 2:
+        script = os.path.abspath(args[0])
+        pre_script = os.path.abspath(args[1])
+    else:
+        p.error('wrong number of input arguments')
 
-    script = os.path.abspath(args[0])
+    # -- Run pre script first
+    if pre_script is not None:
+        try:
+            exec_script(pre_script)
+        except AssertionError, e:
+            print "TEST: failed:", e
+            sys.exit(1)
+        except BaseException, e:
+            print "TEST: cannot run:", e
+            sys.exit(125)
 
-    # -- Build and import
+    # -- Rebuild and arrange import path
     try:
         sitedir, dstdir = build_and_install(no_clean=options.no_clean)
     except RuntimeError:
@@ -45,13 +66,9 @@ def main():
 
     sys.path.insert(0, sitedir)
 
-    # -- Run test
-
+    # -- Run test script
     try:
-        f = open(script, 'rb')
-        code = compile(f.read(), script, 'exec')
-        f.close()
-        exec code in {}
+        exec_script(script)
     except AssertionError, e:
         print "TEST: failed:", e
         sys.exit(1)
@@ -61,6 +78,16 @@ def main():
 
     print "TEST: success"
     sys.exit(0)
+
+def exec_script(filename):
+    cwd = os.getcwd()
+    try:
+        f = open(filename, 'rb')
+        code = compile(f.read(), filename, 'exec')
+        f.close()
+        exec code in {}
+    finally:
+        os.chdir(cwd)
 
 def build_and_install(no_clean=False):
     dstdir = os.path.abspath(os.path.join(os.path.dirname(__file__), "testdist"))
