@@ -58,7 +58,7 @@ def main():
 
     # -- Rebuild and arrange import path
     try:
-        sitedir, dstdir = build_and_install(no_clean=options.no_clean)
+        sitedir = build_and_install(no_clean=options.no_clean)
     except RuntimeError:
         # Signal testing failure
         print "TEST: cannot run: build failed"
@@ -90,7 +90,7 @@ def exec_script(filename):
         os.chdir(cwd)
 
 def build_and_install(no_clean=False):
-    dstdir = os.path.abspath(os.path.join(os.path.dirname(__file__), "testdist"))
+    dstdir = os.path.abspath("testdist")
     sitedir = get_python_lib(prefix=dstdir)
 
     if os.path.isdir('build') and not no_clean:
@@ -110,7 +110,7 @@ def build_and_install(no_clean=False):
     if p.returncode != 0:
         raise RuntimeError()
 
-    return sitedir, dstdir
+    return sitedir
 
 if __name__ == "__main__":
     main()
