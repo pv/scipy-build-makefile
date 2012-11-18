@@ -14,6 +14,9 @@ The script is run after the build, with import path correctly set up.
 The pre-script is run before the build, without setting the import
 path.
 
+NOTE: this script will run "git reset --hard" and throw away your current
+changes.
+
 """
 import sys
 import os
@@ -46,38 +49,43 @@ def main():
         p.error('wrong number of input arguments')
 
     # -- Run pre script first
-    if pre_script is not None:
+    try:
+        if pre_script is not None:
+            try:
+                exec_script(pre_script)
+            except AssertionError, e:
+                print "TEST: failed:", e
+                sys.exit(1)
+            except BaseException, e:
+                print "TEST: cannot run:", e
+                sys.exit(125)
+    
+        # -- Rebuild and arrange import path
         try:
-            exec_script(pre_script)
+            sitedir = build_and_install(no_clean=options.no_clean)
+        except RuntimeError:
+            # Signal testing failure
+            print "TEST: cannot run: build failed"
+            sys.exit(125)
+    
+        sys.path.insert(0, sitedir)
+    
+        # -- Run test script
+        try:
+            exec_script(script)
         except AssertionError, e:
             print "TEST: failed:", e
             sys.exit(1)
         except BaseException, e:
             print "TEST: cannot run:", e
             sys.exit(125)
+    
+        print "TEST: success"
+        sys.exit(0)
 
-    # -- Rebuild and arrange import path
-    try:
-        sitedir = build_and_install(no_clean=options.no_clean)
-    except RuntimeError:
-        # Signal testing failure
-        print "TEST: cannot run: build failed"
-        sys.exit(125)
-
-    sys.path.insert(0, sitedir)
-
-    # -- Run test script
-    try:
-        exec_script(script)
-    except AssertionError, e:
-        print "TEST: failed:", e
-        sys.exit(1)
-    except BaseException, e:
-        print "TEST: cannot run:", e
-        sys.exit(125)
-
-    print "TEST: success"
-    sys.exit(0)
+    finally:
+        # restore working tree
+        subprocess.call(['git', 'reset', '--hard'])
 
 def exec_script(filename):
     cwd = os.getcwd()
