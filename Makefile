@@ -44,8 +44,10 @@ endif
 
 WINE=wine
 
-WINEPREFIX=$(HOME)/.wine/sub/python
+WINEPREFIX=$(HOME)/.wine/sub/py-wine
 export WINEPREFIX
+
+WINEBUILDDIR=$(WINEPREFIX)/drive_c/build
 
 LANG=C
 export LANG
@@ -131,8 +133,14 @@ egg-install:
 build-wine:
 	@echo "--- Building..."
 	rm -rf dist/win32
-	$(WINE) c:\\Python$(PYWINVER)\\python.exe setupwin.py build --compiler=mingw32 install --prefix="dist\\win32" \
-		> build.log 2>&1 || { cat build.log; exit 1; }
+	rsync --delete-after -rtL "$(CURDIR)/" "$(WINEBUILDDIR)/"
+	(cd $(WINEBUILDDIR) && DISPLAY= $(WINE) c:\\Python$(PYWINVER)\\python.exe runwine.py setup.py build --compiler=mingw32 install --prefix="dist\\win32") \
+		> build.log 2>&1 || { make rsync-wine-back; cat build.log; exit 1; }
+	make rsync-wine-back
+
+rsync-wine-back:
+	-rsync -rtL "$(WINEBUILDDIR)/build/" "$(CURDIR)/build/"
+	-rsync -rtL "$(WINEBUILDDIR)/dist/" "$(CURDIR)/dist/"
 
 #
 # -- Run tests
@@ -145,7 +153,10 @@ test-linux:
 
 test-wine:
 	@echo "--- Testing in WINE"
-	(cd dist/win32/Lib && $(WINE) c:\\Python$(PYWINVER)\\python.exe -c $(TEST_STANZA)) \
+	mkdir -p dist/win32/Lib
+	cp -f runwine.py dist/win32/Lib/
+	rsync --delete-after -rtL "$(CURDIR)/" "$(WINEBUILDDIR)/"
+	(cd $(WINEBUILDDIR)/dist/win32/Lib && DISPLAY= $(WINE) c:\\Python$(PYWINVER)\\python.exe runwine.py -c $(TEST_STANZA)) \
 		> test.log 2>&1 || { cat test.log; exit 1; }
 
 # -- Launch debugger
@@ -191,7 +202,10 @@ python-valgrind:
 #
 
 python-wine:
-	cd dist/win32/Lib && $(WINE) c:\\Python$(PYWINVER)\\python.exe
+	mkdir -p dist/win32/Lib
+	cp -f runwine.py dist/win32/Lib/
+	rsync --delete-after -rtL "$(CURDIR)/" "$(WINEBUILDDIR)/"
+	cd $(WINEBUILDDIR)/dist/win32/Lib && DISPLAY= $(WINE) c:\\Python$(PYWINVER)\\python.exe runwine.py
 
 ipython:
 	cd $(CURDIR)/dist && PYTHONPATH=$$PYTHONPATH:$(CURDIR)/dist/linux/lib/python$(PYVER)/site-packages python$(PYVER) `which ipython`
